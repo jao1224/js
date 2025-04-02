@@ -14,7 +14,7 @@ import {
   Platform,
   Alert
 } from 'react-native';
-import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, doc } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, doc, getDoc } from 'firebase/firestore';
 import { db, auth } from './src/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -37,13 +37,6 @@ function App() {
   const scrollViewRef = useRef(null);
 
   // ************ EFEITOS ************ //
-  useEffect(() => {
-    const categories = [...new Set(todos.map(todo => todo.category))]
-      .filter(Boolean)
-      .sort();
-    setUniqueCategories(categories);
-  }, [todos]);
-
   useEffect(() => {
     console.log('Iniciando efeito de autenticação...');
     
@@ -106,6 +99,13 @@ function App() {
     return () => unsubscribeAuth();
   }, []);
 
+  useEffect(() => {
+    const categories = [...new Set(todos.map(todo => todo.category))]
+      .filter(Boolean)
+      .sort();
+    setUniqueCategories(categories);
+  }, [todos]);
+
   const scrollToTop = () => {
     scrollViewRef.current?.scrollToOffset({ offset: 0, animated: true });
   };
@@ -149,15 +149,21 @@ function App() {
       const todoRef = doc(db, 'todos', id);
       const todo = todos.find(t => t.id === id);
       
+      if (!todo) {
+        console.error('Tarefa não encontrada no estado local');
+        return;
+      }
+
       await updateDoc(todoRef, {
         isCompleted: !todo.isCompleted,
-        subItems: todo.subItems.map(sub => ({
+        subItems: (todo.subItems || []).map(sub => ({
           ...sub,
           isCompleted: !todo.isCompleted
         }))
       });
-
+      console.log('Tarefa atualizada com sucesso');
     } catch (error) {
+      console.error('Erro ao atualizar status:', error);
       Alert.alert('Erro', 'Falha ao atualizar status: ' + error.message);
     }
   };
@@ -180,21 +186,70 @@ function App() {
 
   const handleDelete = async (id) => {
     try {
-      await deleteDoc(doc(db, 'todos', id));
       const todo = todos.find(t => t.id === id);
-      setDeletedTodos(prev => [...prev, { ...todo, deletedAt: new Date() }]);
+      if (!todo) {
+        console.error('Tarefa não encontrada no estado local');
+        return;
+      }
 
+      Alert.alert(
+        'Confirmar Exclusão',
+        'Tem certeza que deseja excluir esta tarefa?',
+        [
+          {
+            text: 'Cancelar',
+            style: 'cancel'
+          },
+          {
+            text: 'Excluir',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                const todoRef = doc(db, 'todos', id);
+                await deleteDoc(todoRef);
+                console.log('Tarefa excluída com sucesso:', id);
+
+                setDeletedTodos(prev => [...prev, { 
+                  ...todo,
+                  deletedAt: new Date() 
+                }]);
+              } catch (error) {
+                console.error('Erro ao excluir tarefa:', error);
+                Alert.alert('Erro', 'Falha ao excluir tarefa: ' + error.message);
+              }
+            }
+          }
+        ]
+      );
     } catch (error) {
-      Alert.alert('Erro', 'Falha ao excluir tarefa: ' + error.message);
+      console.error('Erro ao processar exclusão:', error);
+      Alert.alert('Erro', 'Falha ao processar a exclusão: ' + error.message);
     }
   };
 
-  const handleRestore = (id) => {
-    const todo = deletedTodos.find(t => t.id === id);
-    if (todo) {
-      setTodos(prev => [...prev, todo]);
+  const handleRestore = async (id) => {
+    try {
+      const todoToRestore = deletedTodos.find(t => t.id === id);
+      if (!todoToRestore) {
+        console.error('Tarefa não encontrada no histórico');
+        return;
+      }
+
+      const { deletedAt, ...todoData } = todoToRestore;
+      
+      const newTodoRef = await addDoc(collection(db, 'todos'), {
+        ...todoData,
+        createdAt: new Date(),
+        subItems: todoData.subItems || [],
+        userId: user?.uid || 'anonymous'
+      });
+
+      console.log('Tarefa restaurada com ID:', newTodoRef.id);
       setDeletedTodos(prev => prev.filter(t => t.id !== id));
-      setTimeout(scrollToBottom, 100);
+
+    } catch (error) {
+      console.error('Erro ao restaurar tarefa:', error);
+      Alert.alert('Erro', 'Falha ao restaurar tarefa: ' + error.message);
     }
   };
 
@@ -237,22 +292,24 @@ function App() {
       const text = subItemInputs[todoId]?.trim();
       if (!text) return;
 
-      const todoRef = doc(db, 'todos', todoId);
       const todo = todos.find(t => t.id === todoId);
-      
+      if (!todo) {
+        console.error('Tarefa não encontrada no estado local');
+        return;
+      }
+
+      const todoRef = doc(db, 'todos', todoId);
+      const newSubItem = {
+        id: `subitem_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        text: text.trim(),
+        isCompleted: todo.isCompleted
+      };
+
       await updateDoc(todoRef, {
-        subItems: [
-          ...todo.subItems,
-          {
-            id: `subitem_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            text: text.trim(),
-            isCompleted: todo.isCompleted
-          }
-        ]
+        subItems: [...(todo.subItems || []), newSubItem]
       });
 
       handleSubItemInputChange(todoId, '');
-
     } catch (error) {
       Alert.alert('Erro', 'Falha ao adicionar sub-item: ' + error.message);
     }
@@ -260,16 +317,20 @@ function App() {
 
   const handleToggleSubItem = async (todoId, subItemId) => {
     try {
-      const todoRef = doc(db, 'todos', todoId);
       const todo = todos.find(t => t.id === todoId);
-      const updatedSubItems = todo.subItems.map(sub =>
+      if (!todo) {
+        console.error('Tarefa não encontrada no estado local');
+        return;
+      }
+
+      const todoRef = doc(db, 'todos', todoId);
+      const updatedSubItems = (todo.subItems || []).map(sub =>
         sub.id === subItemId ? { ...sub, isCompleted: !sub.isCompleted } : sub
       );
       
       await updateDoc(todoRef, {
         subItems: updatedSubItems
       });
-
     } catch (error) {
       Alert.alert('Erro', 'Falha ao atualizar sub-item: ' + error.message);
     }
@@ -292,12 +353,18 @@ function App() {
 
   const handleDeleteSubItem = async (todoId, subItemId) => {
     try {
-      const todoRef = doc(db, 'todos', todoId);
       const todo = todos.find(t => t.id === todoId);
+      if (!todo) {
+        console.error('Tarefa não encontrada no estado local');
+        return;
+      }
+
+      const todoRef = doc(db, 'todos', todoId);
       const deletedSub = todo.subItems.find(s => s.id === subItemId);
+      const updatedSubItems = todo.subItems.filter(s => s.id !== subItemId);
       
       await updateDoc(todoRef, {
-        subItems: todo.subItems.filter(s => s.id !== subItemId)
+        subItems: updatedSubItems
       });
 
       if (deletedSub) {
@@ -309,80 +376,68 @@ function App() {
           deletedAt: new Date()
         }]);
       }
-
     } catch (error) {
       Alert.alert('Erro', 'Falha ao excluir sub-item: ' + error.message);
     }
   };
 
-  const handleRestoreSubItem = (subItemId) => {
+  const handleRestoreSubItem = async (subItem) => {
     try {
-      const subItem = deletedSubItems.find(s => s.id === subItemId);
-      if (subItem) {
-        const parentExists = todos.some(todo => todo.id === subItem.parentId);
+      const todoRef = doc(db, 'todos', subItem.parentId);
+      const todoSnap = await getDoc(todoRef);
+      
+      if (!todoSnap.exists()) {
+        const newTodo = {
+          text: subItem.parentText,
+          category: subItem.parentCategory,
+          isCompleted: false,
+          subItems: [{
+            id: `subitem_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            text: subItem.text,
+            isCompleted: false
+          }],
+          createdAt: new Date(),
+          userId: user?.uid || 'anonymous'
+        };
+
+        await addDoc(collection(db, 'todos'), newTodo);
         
-        if (!parentExists) {
-          const parentInHistory = deletedTodos.find(todo => todo.id === subItem.parentId);
-          
-          if (parentInHistory) {
-            setTodos(prev => [...prev, {
-              ...parentInHistory,
-              subItems: [{
-                id: subItem.id,
-                text: String(subItem.text),
-                isCompleted: Boolean(subItem.isCompleted)
-              }]
-            }]);
-            setDeletedTodos(prev => prev.filter(t => t.id !== subItem.parentId));
-            
-            setTimeout(() => {
-              Alert.alert(
-                'Sucesso',
-                'A tarefa principal foi restaurada junto com o sub-item',
-                [{ text: 'OK' }]
-              );
-            }, 100);
-          } else {
-            const newTodo = {
-              id: subItem.parentId,
-              text: String(subItem.parentText),
-              category: String(subItem.parentCategory),
-              isCompleted: false,
-              isEditing: false,
-              subItems: [{
-                id: subItem.id,
-                text: String(subItem.text),
-                isCompleted: Boolean(subItem.isCompleted)
-              }]
-            };
-            setTodos(prev => [...prev, newTodo]);
-          }
-        } else {
-          setTodos(prev =>
-            prev.map(todo =>
-              todo.id === subItem.parentId
-                ? {
-                    ...todo,
-                    subItems: [
-                      ...todo.subItems,
-                      {
-                        id: subItem.id,
-                        text: String(subItem.text),
-                        isCompleted: Boolean(subItem.isCompleted)
-                      }
-                    ]
-                  }
-                : todo
-            )
-          );
+        const parentInHistory = deletedTodos.find(t => t.id === subItem.parentId);
+        if (parentInHistory) {
+          setDeletedTodos(prev => prev.filter(t => t.id !== subItem.parentId));
         }
         
-        setDeletedSubItems(prev => prev.filter(s => s.id !== subItemId));
-        setTimeout(scrollToBottom, 100);
+        Alert.alert('Sucesso', 'Uma nova tarefa foi criada com o sub-item restaurado.');
+      } else {
+        const todoData = todoSnap.data();
+        const existingSubItems = todoData.subItems || [];
+        
+        if (!existingSubItems.some(item => item.text === subItem.text)) {
+          const updatedSubItems = [
+            ...existingSubItems,
+            {
+              id: `subitem_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              text: subItem.text,
+              isCompleted: false
+            }
+          ];
+
+          await updateDoc(todoRef, {
+            subItems: updatedSubItems
+          });
+        } else {
+          Alert.alert('Aviso', 'Este sub-item já existe na tarefa.');
+          return;
+        }
       }
+
+      setDeletedSubItems(prev => prev.filter(s => 
+        !(s.id === subItem.id && s.parentId === subItem.parentId)
+      ));
+
     } catch (error) {
       console.error('Erro ao restaurar sub-item:', error);
-      Alert.alert('Erro', String(error.message || 'Erro ao restaurar sub-item'));
+      Alert.alert('Erro', 'Falha ao restaurar sub-item: ' + error.message);
     }
   };
 
@@ -698,7 +753,7 @@ function App() {
                     </Text>
                     <View style={styles.historyButtons}>
                       <TouchableOpacity
-                        onPress={() => handleRestoreSubItem(sub.id)}
+                        onPress={() => handleRestoreSubItem(sub)}
                         style={styles.restoreButton}
                       >
                         <Text style={styles.buttonText}>Restaurar</Text>

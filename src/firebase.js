@@ -1,14 +1,19 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
-import { getAuth, signInAnonymously } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+import { initializeAuth, getReactNativePersistence } from "firebase/auth";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyCztKxPyQ8pC_hH2CnBMzIjRDb49avOKKk",
   authDomain: "todolist-2f767.firebaseapp.com",
+  databaseURL: "https://todolist-2f767-default-rtdb.firebaseio.com",
   projectId: "todolist-2f767",
-  storageBucket: "todolist-2f767.appspot.com",
+  storageBucket: "todolist-2f767.firebasestorage.app",
   messagingSenderId: "722219746570",
-  appId: "1:722219746570:web:72506a134a71c973dba6f3"
+  appId: "1:722219746570:web:72506a134a71c973dba6f3",
+  measurementId: "G-1ZCRG1B2Y4"
 };
 
 // Inicializa o Firebase
@@ -17,22 +22,15 @@ const app = initializeApp(firebaseConfig);
 // Inicializa Firestore
 const db = getFirestore(app);
 
-// Habilita persistência offline
-enableIndexedDbPersistence(db)
-  .catch((err) => {
-    if (err.code == 'failed-precondition') {
-      console.warn('Persistência múltipla não é suportada');
-    } else if (err.code == 'unimplemented') {
-      console.warn('O navegador não suporta persistência');
-    }
-  });
-
-// Inicializa Auth
-const auth = getAuth(app);
+// Inicializa Auth com persistência
+const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(AsyncStorage)
+});
 
 // Realiza autenticação anônima
 const initAuth = async () => {
   try {
+    const { signInAnonymously } = await import('firebase/auth');
     const userCredential = await signInAnonymously(auth);
     console.log('Autenticação anônima realizada com sucesso:', userCredential.user.uid);
     return userCredential.user;
@@ -41,7 +39,6 @@ const initAuth = async () => {
     if (error.code === 'auth/configuration-not-found') {
       console.warn('A autenticação anônima não está habilitada no console do Firebase');
     }
-    // Não vamos lançar o erro, apenas retornar null
     return null;
   }
 };
