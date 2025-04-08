@@ -20,6 +20,9 @@ import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { Input, Button, Icon } from 'react-native-elements';
 import { ref, set, get, remove, update, push, onValue, off } from 'firebase/database';
 import { database } from './src/firebase';
+import { DateTimePickerModal } from 'react-native-paper-dates';
+import { Provider as PaperProvider } from 'react-native-paper';
+import { DatePickerInput } from 'react-native-paper-dates';
 
 function App() {
   // ************ ESTADOS ************ //
@@ -28,6 +31,8 @@ function App() {
   const [deletedSubItems, setDeletedSubItems] = useState([]);
   const [input, setInput] = useState('');
   const [category, setCategory] = useState('');
+  const [dueDate, setDueDate] = useState(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [subItemInputs, setSubItemInputs] = useState({});
   const [showHistory, setShowHistory] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -111,6 +116,19 @@ function App() {
     }
   };
 
+  // ************ GERENCIAMENTO DE DATA ************ //
+  const handleDateChange = (date) => {
+    setShowDatePicker(false);
+    if (date) {
+      setDueDate(date);
+    }
+  };
+
+  const formatDate = (date) => {
+    if (!date) return '';
+    return new Date(date).toLocaleDateString('pt-BR');
+  };
+
   // ************ GERENCIAMENTO DE TAREFAS ************ //
   const handleAddTodo = async () => {
     if (input.trim() === '') return;
@@ -123,12 +141,14 @@ function App() {
         text: input.trim(),
         category: category.trim(),
         completed: false,
+        dueDate: dueDate ? dueDate.getTime() : null,
         subItems: [],
         createdAt: Date.now()
       });
       console.log('Tarefa adicionada com sucesso');
       setInput('');
       setCategory('');
+      setDueDate(null);
       setHasAddedTodo(true);
       setTimeout(scrollToBottom, 100);
     } catch (error) {
@@ -173,10 +193,10 @@ function App() {
     );
   };
 
-  const handleEdit = (id, newText, newCategory) => {
+  const handleEdit = (id, newText, newCategory, newDate) => {
     setTodos(prev =>
       prev.map(todo =>
-        todo.id === id ? { ...todo, text: newText, category: newCategory } : todo
+        todo.id === id ? { ...todo, text: newText, category: newCategory, dueDate: newDate } : todo
       )
     );
   };
@@ -512,14 +532,22 @@ function App() {
             <View style={styles.editContainer}>
               <TextInput
                 value={todo.text}
-                onChangeText={(text) => handleEdit(todo.id, text, todo.category)}
+                onChangeText={(text) => handleEdit(todo.id, text, todo.category, todo.dueDate)}
                 style={styles.input}
               />
               <TextInput
                 value={todo.category}
-                onChangeText={(text) => handleEdit(todo.id, todo.text, text)}
+                onChangeText={(text) => handleEdit(todo.id, todo.text, text, todo.dueDate)}
                 style={styles.input}
                 placeholder="Categoria"
+              />
+              <DatePickerInput
+                locale="pt-BR"
+                label="Data de término"
+                value={todo.dueDate}
+                onChange={(date) => handleEdit(todo.id, todo.text, todo.category, date)}
+                inputMode="start"
+                style={styles.dateInput}
               />
             </View>
           ) : (
@@ -527,9 +555,16 @@ function App() {
               <Text style={[styles.todoText, todo.completed && styles.completed]}>
                 {todo.text}
               </Text>
-              <Text style={[styles.todoCategory, todo.completed && styles.completed]}>
-                {todo.category}
-              </Text>
+              <View style={styles.todoDetails}>
+                <Text style={[styles.todoCategory, todo.completed && styles.completed]}>
+                  {todo.category}
+                </Text>
+                {todo.dueDate && (
+                  <Text style={[styles.todoDueDate, todo.completed && styles.completed]}>
+                    Prazo: {formatDate(todo.dueDate)}
+                  </Text>
+                )}
+              </View>
             </View>
           )}
         </View>
@@ -613,178 +648,188 @@ function App() {
 
   // ************ RENDERIZAÇÃO PRINCIPAL ************ //
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Gerenciador de Tarefas</Text>
-          <TouchableOpacity
-            style={styles.historyButton}
-            onPress={() => setShowHistory(true)}
-          >
-            <Text style={styles.buttonText}>Histórico</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.form}>
-          <View style={styles.inputGroup}>
-            <TextInput
-              value={input}
-              onChangeText={setInput}
-              placeholder="Nova tarefa..."
-              style={styles.input}
-            />
-            <TextInput
-              value={category}
-              onChangeText={setCategory}
-              placeholder="Categoria..."
-              style={styles.input}
-            />
-          </View>
-          <TouchableOpacity 
-            onPress={handleAddTodo} 
-            style={styles.addButton}
-          >
-            <Text style={styles.buttonText}>Adicionar Tarefa</Text>
-          </TouchableOpacity>
-        </View>
-
-        {showFilter && todos.length > 0 && (
-          <View style={styles.filterContainer}>
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filterScroll}
-            >
-              {hasAddedTodo && (
-                <TouchableOpacity
-                  style={[
-                    styles.filterButton,
-                    !categoryFilter && styles.activeFilter
-                  ]}
-                  onPress={() => setCategoryFilter('')}
-                >
-                  <Text style={[
-                    styles.filterButtonText,
-                    !categoryFilter && styles.activeFilterText
-                  ]}>
-                    Todas
-                  </Text>
-                </TouchableOpacity>
-              )}
-              
-              {uniqueCategories.map(cat => (
-                <TouchableOpacity
-                  key={cat}
-                  style={[
-                    styles.filterButton,
-                    categoryFilter === cat && styles.activeFilter
-                  ]}
-                  onPress={() => setCategoryFilter(cat)}
-                >
-                  <Text style={[
-                    styles.filterButtonText,
-                    categoryFilter === cat && styles.activeFilterText
-                  ]}>
-                    {cat}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        <FlatList
-          data={todos || []}
-          renderItem={renderTodoItem}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={styles.todoList}
-          style={styles.scrollContainer}
-          ref={scrollViewRef}
-          onContentSizeChange={() => {
-            if (hasAddedTodo) {
-              scrollViewRef.current?.scrollToEnd({ animated: true });
-            }
-          }}
-          ListEmptyComponent={() => (
-            <Text style={styles.emptyText}>Nenhuma tarefa encontrada</Text>
-          )}
-        />
-
-        <Modal
-          visible={showHistory}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setShowHistory(false)}
+    <PaperProvider>
+      <SafeAreaView style={styles.safeArea}>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalHeader}>Histórico de Exclusões</Text>
-              <Text style={styles.sectionHeader}>Tarefas Removidas</Text>
-              {deletedTodos.length === 0 ? (
-                <Text style={styles.emptyMessage}>Nenhuma tarefa removida</Text>
-              ) : (
-                deletedTodos.map(todo => (
-                  <View key={todo.id} style={styles.historyItem}>
-                    <Text style={styles.historyText}>
-                      {todo.text} ({todo.category})
-                    </Text>
-                    <View style={styles.historyButtons}>
-                      <TouchableOpacity
-                        onPress={() => handleRestore(todo.id)}
-                        style={styles.restoreButton}
-                      >
-                        <Text style={styles.buttonText}>Restaurar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => handlePermanentDelete(todo.id)}
-                        style={styles.deleteForeverButton}
-                      >
-                        <Text style={styles.buttonText}>Excluir</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))
-              )}
-              <Text style={styles.sectionHeader}>Sub-itens Removidos</Text>
-              {deletedSubItems.length === 0 ? (
-                <Text style={styles.emptyMessage}>Nenhum sub-item removido</Text>
-              ) : (
-                deletedSubItems.map(sub => (
-                  <View key={sub.id} style={styles.historyItem}>
-                    <Text style={styles.historyText}>
-                      {sub.text} (de: {sub.parentText} - {sub.parentCategory})
-                    </Text>
-                    <View style={styles.historyButtons}>
-                      <TouchableOpacity
-                        onPress={() => handleRestoreSubItem(sub)}
-                        style={styles.restoreButton}
-                      >
-                        <Text style={styles.buttonText}>Restaurar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => handlePermanentDeleteSubItem(sub.id)}
-                        style={styles.deleteForeverButton}
-                      >
-                        <Text style={styles.buttonText}>Excluir</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))
-              )}
-              <TouchableOpacity
-                style={styles.closeModalButton}
-                onPress={() => setShowHistory(false)}
-              >
-                <Text style={styles.buttonText}>Fechar Histórico</Text>
-              </TouchableOpacity>
-            </View>
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Gerenciador de Tarefas</Text>
+            <TouchableOpacity
+              style={styles.historyButton}
+              onPress={() => setShowHistory(true)}
+            >
+              <Text style={styles.buttonText}>Histórico</Text>
+            </TouchableOpacity>
           </View>
-        </Modal>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+
+          <View style={styles.form}>
+            <View style={styles.inputGroup}>
+              <TextInput
+                value={input}
+                onChangeText={setInput}
+                placeholder="Nova tarefa..."
+                style={styles.input}
+              />
+              <TextInput
+                value={category}
+                onChangeText={setCategory}
+                placeholder="Categoria..."
+                style={styles.input}
+              />
+            </View>
+            <DatePickerInput
+              locale="pt-BR"
+              label="Data de término"
+              value={dueDate}
+              onChange={handleDateChange}
+              inputMode="start"
+              style={styles.dateInput}
+            />
+            <TouchableOpacity 
+              onPress={handleAddTodo} 
+              style={styles.addButton}
+            >
+              <Text style={styles.buttonText}>Adicionar Tarefa</Text>
+            </TouchableOpacity>
+          </View>
+
+          {showFilter && todos.length > 0 && (
+            <View style={styles.filterContainer}>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.filterScroll}
+              >
+                {hasAddedTodo && (
+                  <TouchableOpacity
+                    style={[
+                      styles.filterButton,
+                      !categoryFilter && styles.activeFilter
+                    ]}
+                    onPress={() => setCategoryFilter('')}
+                  >
+                    <Text style={[
+                      styles.filterButtonText,
+                      !categoryFilter && styles.activeFilterText
+                    ]}>
+                      Todas
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                
+                {uniqueCategories.map(cat => (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[
+                      styles.filterButton,
+                      categoryFilter === cat && styles.activeFilter
+                    ]}
+                    onPress={() => setCategoryFilter(cat)}
+                  >
+                    <Text style={[
+                      styles.filterButtonText,
+                      categoryFilter === cat && styles.activeFilterText
+                    ]}>
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          <FlatList
+            data={todos || []}
+            renderItem={renderTodoItem}
+            keyExtractor={(item) => item.id.toString()}
+            contentContainerStyle={styles.todoList}
+            style={styles.scrollContainer}
+            ref={scrollViewRef}
+            onContentSizeChange={() => {
+              if (hasAddedTodo) {
+                scrollViewRef.current?.scrollToEnd({ animated: true });
+              }
+            }}
+            ListEmptyComponent={() => (
+              <Text style={styles.emptyText}>Nenhuma tarefa encontrada</Text>
+            )}
+          />
+
+          <Modal
+            visible={showHistory}
+            animationType="slide"
+            transparent={true}
+            onRequestClose={() => setShowHistory(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalHeader}>Histórico de Exclusões</Text>
+                <Text style={styles.sectionHeader}>Tarefas Removidas</Text>
+                {deletedTodos.length === 0 ? (
+                  <Text style={styles.emptyMessage}>Nenhuma tarefa removida</Text>
+                ) : (
+                  deletedTodos.map(todo => (
+                    <View key={todo.id} style={styles.historyItem}>
+                      <Text style={styles.historyText}>
+                        {todo.text} ({todo.category})
+                      </Text>
+                      <View style={styles.historyButtons}>
+                        <TouchableOpacity
+                          onPress={() => handleRestore(todo.id)}
+                          style={styles.restoreButton}
+                        >
+                          <Text style={styles.buttonText}>Restaurar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => handlePermanentDelete(todo.id)}
+                          style={styles.deleteForeverButton}
+                        >
+                          <Text style={styles.buttonText}>Excluir</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))
+                )}
+                <Text style={styles.sectionHeader}>Sub-itens Removidos</Text>
+                {deletedSubItems.length === 0 ? (
+                  <Text style={styles.emptyMessage}>Nenhum sub-item removido</Text>
+                ) : (
+                  deletedSubItems.map(sub => (
+                    <View key={sub.id} style={styles.historyItem}>
+                      <Text style={styles.historyText}>
+                        {sub.text} (de: {sub.parentText} - {sub.parentCategory})
+                      </Text>
+                      <View style={styles.historyButtons}>
+                        <TouchableOpacity
+                          onPress={() => handleRestoreSubItem(sub)}
+                          style={styles.restoreButton}
+                        >
+                          <Text style={styles.buttonText}>Restaurar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => handlePermanentDeleteSubItem(sub.id)}
+                          style={styles.deleteForeverButton}
+                        >
+                          <Text style={styles.buttonText}>Excluir</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))
+                )}
+                <TouchableOpacity
+                  style={styles.closeModalButton}
+                  onPress={() => setShowHistory(false)}
+                >
+                  <Text style={styles.buttonText}>Fechar Histórico</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </PaperProvider>
   );
 }
 
@@ -799,50 +844,57 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     paddingTop: 40,
+    justifyContent: 'center',
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 25,
-    position: 'relative',
   },
   headerTitle: {
     fontSize: 23,
     fontWeight: 'bold',
     color: '#2c3e50',
-    textAlign: 'left',
-    flex: 1,
   },
   historyButton: {
     backgroundColor: '#3498db',
     padding: 9,
     borderRadius: 5,
-    position: 'right',
-    right: 4,
   },
   form: {
-    marginBottom: 30,
+    marginBottom: 50,
+    backgroundColor: 'white',
+    padding: 25,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 3,
+    width: '100%',
   },
   inputGroup: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     justifyContent: 'space-between',
-    marginBottom: 15,
+    marginBottom: 25,
   },
   input: {
-    flex: 1,
     padding: 12,
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
     fontSize: 16,
-    marginRight: 20,
+    marginBottom: 15,
+    width: '100%',
   },
   addButton: {
     backgroundColor: '#27ae60',
-    padding: 12,
+    padding: 18,
     borderRadius: 8,
     alignItems: 'center',
+    marginTop: 25,
+    width: '100%',
   },
   scrollContainer: {
     flex: 1,
@@ -852,11 +904,16 @@ const styles = StyleSheet.create({
   },
   todoItem: {
     backgroundColor: 'white',
-    padding: 20,
+    padding: 30,
     borderRadius: 10,
-    marginBottom: 15,
+    marginBottom: 25,
     borderLeftWidth: 4,
     borderLeftColor: '#3498db',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 3,
   },
   completedTask: {
     backgroundColor: '#f8f9fa',
@@ -1057,6 +1114,22 @@ const styles = StyleSheet.create({
   },
   completeButton: {
     backgroundColor: '#2980b9',
+  },
+  dateInput: {
+    backgroundColor: 'white',
+    marginBottom: 20,
+    marginTop: 10,
+  },
+  todoDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  todoDueDate: {
+    fontSize: 14,
+    color: '#e74c3c',
+    fontStyle: 'italic',
   },
 });
 
