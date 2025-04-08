@@ -16,7 +16,10 @@ import {
 } from 'react-native';
 import { collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, doc, getDoc } from 'firebase/firestore';
 import { db, auth } from './src/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { Input, Button, Icon } from 'react-native-elements';
+import { ref, set, get, remove, update, push, onValue, off } from 'firebase/database';
+import { database } from './src/firebase';
 
 function App() {
   // ************ ESTADOS ************ //
@@ -40,63 +43,24 @@ function App() {
   useEffect(() => {
     console.log('Iniciando efeito de autenticação...');
     
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      console.log('Status da autenticação:', user ? 'Autenticado' : 'Não autenticado');
-      setUser(user);
-      
-      const loadTodos = () => {
-        console.log('Iniciando carregamento das tarefas...');
-        
-        try {
-          const q = query(collection(db, 'todos'), orderBy('createdAt', 'desc'));
-          console.log('Query criada');
-          
-          const unsubscribe = onSnapshot(q, (snapshot) => {
-            console.log('Snapshot recebido:', snapshot.size, 'documentos');
-            
-            const todosData = [];
-            snapshot.forEach((doc) => {
-              const data = doc.data();
-              console.log('Documento:', doc.id, data);
-              
-              todosData.push({
-                id: doc.id,
-                ...data,
-                createdAt: data.createdAt?.toDate() || new Date(),
-                subItems: data.subItems || []
-              });
-            });
-            
-            console.log('Tarefas carregadas:', todosData.length);
-            setTodos(todosData);
-          }, (error) => {
-            console.error('Erro no snapshot:', error);
-            if (error.code === 'permission-denied') {
-              Alert.alert(
-                'Erro de Permissão',
-                'Verifique se as regras do Firestore estão configuradas corretamente.'
-              );
-            } else {
-              Alert.alert('Erro', 'Falha ao carregar tarefas: ' + error.message);
-            }
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setUser(user);
+        loadTodos();
+      } else {
+        signInAnonymously(auth)
+          .then((userCredential) => {
+            setUser(userCredential.user);
+            loadTodos();
+          })
+          .catch((error) => {
+            console.error('Erro ao fazer login anônimo:', error);
+            Alert.alert('Erro', 'Não foi possível fazer login');
           });
-          
-          return unsubscribe;
-        } catch (error) {
-          console.error('Erro ao configurar listener:', error);
-          Alert.alert('Erro', 'Falha ao configurar listener: ' + error.message);
-        }
-      };
-
-      const unsubscribeTodos = loadTodos();
-      return () => {
-        if (unsubscribeTodos) {
-          unsubscribeTodos();
-        }
-      };
+      }
     });
 
-    return () => unsubscribeAuth();
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -114,57 +78,90 @@ function App() {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   };
 
+  const loadTodos = () => {
+    try {
+      console.log('Carregando tarefas...');
+      const todosRef = ref(database, 'todos');
+      const unsubscribe = onValue(todosRef, (snapshot) => {
+        console.log('Snapshot recebido:', snapshot.val());
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          const todosArray = Object.entries(data || {}).map(([id, todo]) => ({
+            id,
+            ...todo,
+            subItems: todo.subItems || []
+          }));
+          console.log('Tarefas carregadas:', todosArray);
+          setTodos(todosArray);
+        } else {
+          console.log('Nenhuma tarefa encontrada');
+          setTodos([]);
+        }
+      }, (error) => {
+        console.error('Erro ao carregar tarefas:', error);
+        Alert.alert('Erro', 'Não foi possível carregar as tarefas');
+        setTodos([]);
+      });
+
+      return () => off(todosRef);
+    } catch (error) {
+      console.error('Erro ao configurar listener:', error);
+      Alert.alert('Erro', 'Não foi possível configurar o listener');
+      setTodos([]);
+    }
+  };
+
   // ************ GERENCIAMENTO DE TAREFAS ************ //
   const handleAddTodo = async () => {
+    if (input.trim() === '') return;
+    
     try {
-      if (!input.trim() || !category.trim()) {
-        Alert.alert('Erro', 'Preencha todos os campos');
-        return;
-      }
-
-      const newTodo = {
+      console.log('Adicionando tarefa...');
+      const todosRef = ref(database, 'todos');
+      const newTodoRef = push(todosRef);
+      await set(newTodoRef, {
         text: input.trim(),
         category: category.trim(),
-        isCompleted: false,
+        completed: false,
         subItems: [],
-        createdAt: new Date(),
-        userId: user?.uid || 'anonymous'
-      };
-
-      const docRef = await addDoc(collection(db, 'todos'), newTodo);
-      console.log('Tarefa adicionada com ID:', docRef.id);
-
+        createdAt: Date.now()
+      });
+      console.log('Tarefa adicionada com sucesso');
       setInput('');
       setCategory('');
       setHasAddedTodo(true);
       setTimeout(scrollToBottom, 100);
-
     } catch (error) {
-      Alert.alert('Erro', 'Falha ao adicionar tarefa: ' + error.message);
+      console.error('Erro ao adicionar tarefa:', error);
+      Alert.alert('Erro', 'Não foi possível adicionar a tarefa');
     }
   };
 
   const handleComplete = async (id) => {
     try {
-      const todoRef = doc(db, 'todos', id);
-      const todo = todos.find(t => t.id === id);
+      const todoRef = ref(database, `todos/${id}`);
+      const snapshot = await get(todoRef);
       
-      if (!todo) {
-        console.error('Tarefa não encontrada no estado local');
-        return;
-      }
+      if (snapshot.exists()) {
+        const todo = snapshot.val();
+        const newCompletedState = !todo.completed;
+        
+        // Atualiza o estado de conclusão da tarefa principal e todos os sub-itens
+        const updatedSubItems = (todo.subItems || []).map(subItem => ({
+          ...subItem,
+          completed: newCompletedState
+        }));
 
-      await updateDoc(todoRef, {
-        isCompleted: !todo.isCompleted,
-        subItems: (todo.subItems || []).map(sub => ({
-          ...sub,
-          isCompleted: !todo.isCompleted
-        }))
-      });
-      console.log('Tarefa atualizada com sucesso');
+        await update(todoRef, { 
+          completed: newCompletedState,
+          subItems: updatedSubItems
+        });
+        
+        console.log('Status da tarefa e sub-itens atualizados com sucesso');
+      }
     } catch (error) {
-      console.error('Erro ao atualizar status:', error);
-      Alert.alert('Erro', 'Falha ao atualizar status: ' + error.message);
+      console.error('Erro ao atualizar status da tarefa:', error);
+      Alert.alert('Erro', 'Não foi possível atualizar o status da tarefa');
     }
   };
 
@@ -186,44 +183,38 @@ function App() {
 
   const handleDelete = async (id) => {
     try {
-      const todo = todos.find(t => t.id === id);
-      if (!todo) {
-        console.error('Tarefa não encontrada no estado local');
-        return;
+      const todoRef = ref(database, `todos/${id}`);
+      const snapshot = await get(todoRef);
+      
+      if (snapshot.exists()) {
+        const todoToDelete = snapshot.val();
+        
+        // Salva a tarefa no histórico
+        setDeletedTodos(prev => [...prev, {
+          id,
+          ...todoToDelete,
+          deletedAt: Date.now()
+        }]);
+
+        // Salva os sub-itens no histórico
+        if (todoToDelete.subItems && todoToDelete.subItems.length > 0) {
+          const newDeletedSubItems = todoToDelete.subItems.map(subItem => ({
+            ...subItem,
+            parentId: id,
+            parentText: todoToDelete.text,
+            parentCategory: todoToDelete.category,
+            deletedAt: Date.now()
+          }));
+          setDeletedSubItems(prev => [...prev, ...newDeletedSubItems]);
+        }
+
+        // Remove a tarefa do banco de dados
+        await remove(todoRef);
+        console.log('Tarefa e sub-itens movidos para o histórico com sucesso');
       }
-
-      Alert.alert(
-        'Confirmar Exclusão',
-        'Tem certeza que deseja excluir esta tarefa?',
-        [
-          {
-            text: 'Cancelar',
-            style: 'cancel'
-          },
-          {
-            text: 'Excluir',
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                const todoRef = doc(db, 'todos', id);
-                await deleteDoc(todoRef);
-                console.log('Tarefa excluída com sucesso:', id);
-
-                setDeletedTodos(prev => [...prev, { 
-                  ...todo,
-                  deletedAt: new Date() 
-                }]);
-              } catch (error) {
-                console.error('Erro ao excluir tarefa:', error);
-                Alert.alert('Erro', 'Falha ao excluir tarefa: ' + error.message);
-              }
-            }
-          }
-        ]
-      );
     } catch (error) {
-      console.error('Erro ao processar exclusão:', error);
-      Alert.alert('Erro', 'Falha ao processar a exclusão: ' + error.message);
+      console.error('Erro ao deletar tarefa:', error);
+      Alert.alert('Erro', 'Não foi possível deletar a tarefa');
     }
   };
 
@@ -237,15 +228,38 @@ function App() {
 
       const { deletedAt, ...todoData } = todoToRestore;
       
-      const newTodoRef = await addDoc(collection(db, 'todos'), {
+      // Encontra os sub-itens deletados que pertencem a esta tarefa
+      const relatedSubItems = deletedSubItems.filter(sub => sub.parentId === id);
+      
+      // Restaura a tarefa principal com seus sub-itens originais
+      const newTodoRef = ref(database, `todos/${id}`);
+      
+      // Verifica se a tarefa tem sub-itens no histórico
+      const subItemsToRestore = todoData.subItems && todoData.subItems.length > 0 
+        ? todoData.subItems 
+        : relatedSubItems.map(sub => ({
+            id: sub.id,
+            text: sub.text,
+            completed: false
+          }));
+
+      await set(newTodoRef, {
         ...todoData,
-        createdAt: new Date(),
-        subItems: todoData.subItems || [],
-        userId: user?.uid || 'anonymous'
+        completed: false,
+        subItems: subItemsToRestore,
+        createdAt: Date.now()
       });
 
-      console.log('Tarefa restaurada com ID:', newTodoRef.id);
+      console.log('Tarefa restaurada com ID:', id);
+      console.log('Sub-itens restaurados:', subItemsToRestore);
+      
+      // Remove a tarefa do histórico de deletados
       setDeletedTodos(prev => prev.filter(t => t.id !== id));
+
+      // Remove os sub-itens relacionados do histórico
+      setDeletedSubItems(prev => prev.filter(s => s.parentId !== id));
+
+      Alert.alert('Sucesso', 'Tarefa e seus sub-itens foram restaurados com sucesso!');
 
     } catch (error) {
       console.error('Erro ao restaurar tarefa:', error);
@@ -257,7 +271,7 @@ function App() {
     try {
       Alert.alert(
         'Confirmação',
-        'Tem certeza que deseja excluir permanentemente esta tarefa?',
+        'Tem certeza que deseja excluir permanentemente esta tarefa e seus sub-itens?',
         [
           {
             text: 'Não',
@@ -267,7 +281,13 @@ function App() {
             text: 'Sim',
             style: 'destructive',
             onPress: () => {
+              // Remove a tarefa pai do histórico
               setDeletedTodos(prev => prev.filter(t => t.id !== id));
+              
+              // Remove todos os sub-itens relacionados do histórico
+              setDeletedSubItems(prev => prev.filter(s => s.parentId !== id));
+              
+              console.log('Tarefa e sub-itens excluídos permanentemente');
             }
           }
         ]
@@ -287,63 +307,76 @@ function App() {
     setSubItemInputs(prev => ({ ...prev, [todoId]: String(value).trim() }));
   };
 
-  const handleAddSubItem = async (todoId) => {
+  const handleAddSubItem = async (todoId, subItemText) => {
+    if (subItemText.trim() === '') return;
+    
     try {
-      const text = subItemInputs[todoId]?.trim();
-      if (!text) return;
-
-      const todo = todos.find(t => t.id === todoId);
-      if (!todo) {
-        console.error('Tarefa não encontrada no estado local');
-        return;
+      const todoRef = ref(database, `todos/${todoId}`);
+      const snapshot = await get(todoRef);
+      if (snapshot.exists()) {
+        const todo = snapshot.val();
+        const subItems = todo.subItems || [];
+        subItems.push({
+          text: subItemText,
+          completed: false,
+          id: Date.now().toString()
+        });
+        await update(todoRef, { subItems });
+        console.log('Subitem adicionado com sucesso');
+        setSubItemInputs(prev => ({ ...prev, [todoId]: '' }));
       }
-
-      const todoRef = doc(db, 'todos', todoId);
-      const newSubItem = {
-        id: `subitem_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        text: text.trim(),
-        isCompleted: todo.isCompleted
-      };
-
-      await updateDoc(todoRef, {
-        subItems: [...(todo.subItems || []), newSubItem]
-      });
-
-      handleSubItemInputChange(todoId, '');
     } catch (error) {
-      Alert.alert('Erro', 'Falha ao adicionar sub-item: ' + error.message);
+      console.error('Erro ao adicionar subitem:', error);
+      Alert.alert('Erro', 'Não foi possível adicionar o subitem');
     }
   };
 
   const handleToggleSubItem = async (todoId, subItemId) => {
     try {
-      const todo = todos.find(t => t.id === todoId);
-      if (!todo) {
-        console.error('Tarefa não encontrada no estado local');
-        return;
+      const todoRef = ref(database, `todos/${todoId}`);
+      const snapshot = await get(todoRef);
+      if (snapshot.exists()) {
+        const todo = snapshot.val();
+        const updatedSubItems = todo.subItems.map(sub =>
+          sub.id === subItemId ? { ...sub, completed: !sub.completed } : sub
+        );
+        await update(todoRef, { subItems: updatedSubItems });
+        console.log('Status do subitem atualizado com sucesso');
       }
-
-      const todoRef = doc(db, 'todos', todoId);
-      const updatedSubItems = (todo.subItems || []).map(sub =>
-        sub.id === subItemId ? { ...sub, isCompleted: !sub.isCompleted } : sub
-      );
-      
-      await updateDoc(todoRef, {
-        subItems: updatedSubItems
-      });
     } catch (error) {
+      console.error('Erro ao atualizar sub-item:', error);
       Alert.alert('Erro', 'Falha ao atualizar sub-item: ' + error.message);
     }
   };
 
-  const handleEditSubItem = (todoId, subItemId, newText) => {
+  const handleEditSubItem = async (todoId, subItemId, newText) => {
+    try {
+      const todoRef = ref(database, `todos/${todoId}`);
+      const snapshot = await get(todoRef);
+      if (snapshot.exists()) {
+        const todo = snapshot.val();
+        const updatedSubItems = todo.subItems.map(sub =>
+          sub.id === subItemId ? { ...sub, text: newText } : sub
+        );
+        await update(todoRef, { subItems: updatedSubItems });
+        console.log('Sub-item atualizado com sucesso');
+      }
+    } catch (error) {
+      console.error('Erro ao editar sub-item:', error);
+      Alert.alert('Erro', 'Falha ao editar sub-item: ' + error.message);
+    }
+  };
+
+  const toggleEditSubItem = (todoId, subItemId) => {
     setTodos(prev =>
       prev.map(todo =>
         todo.id === todoId
           ? {
               ...todo,
               subItems: todo.subItems.map(sub =>
-                sub.id === subItemId ? { ...sub, text: newText } : sub
+                sub.id === subItemId
+                  ? { ...sub, isEditing: !sub.isEditing }
+                  : sub
               )
             }
           : todo
@@ -353,54 +386,52 @@ function App() {
 
   const handleDeleteSubItem = async (todoId, subItemId) => {
     try {
-      const todo = todos.find(t => t.id === todoId);
-      if (!todo) {
-        console.error('Tarefa não encontrada no estado local');
-        return;
-      }
+      const todoRef = ref(database, `todos/${todoId}`);
+      const snapshot = await get(todoRef);
+      if (snapshot.exists()) {
+        const todo = snapshot.val();
+        const subItemToDelete = todo.subItems.find(s => s.id === subItemId);
+        
+        if (subItemToDelete) {
+          // Salva o sub-item no histórico
+          setDeletedSubItems(prev => [...prev, {
+            ...subItemToDelete,
+            parentId: todoId,
+            parentText: todo.text,
+            parentCategory: todo.category,
+            deletedAt: Date.now()
+          }]);
 
-      const todoRef = doc(db, 'todos', todoId);
-      const deletedSub = todo.subItems.find(s => s.id === subItemId);
-      const updatedSubItems = todo.subItems.filter(s => s.id !== subItemId);
-      
-      await updateDoc(todoRef, {
-        subItems: updatedSubItems
-      });
-
-      if (deletedSub) {
-        setDeletedSubItems(prev => [...prev, {
-          ...deletedSub,
-          parentId: todoId,
-          parentText: todo.text,
-          parentCategory: todo.category,
-          deletedAt: new Date()
-        }]);
+          // Remove o sub-item da tarefa
+          const updatedSubItems = todo.subItems.filter(s => s.id !== subItemId);
+          await update(todoRef, { subItems: updatedSubItems });
+          console.log('Sub-item movido para o histórico com sucesso');
+        }
       }
     } catch (error) {
+      console.error('Erro ao excluir sub-item:', error);
       Alert.alert('Erro', 'Falha ao excluir sub-item: ' + error.message);
     }
   };
 
   const handleRestoreSubItem = async (subItem) => {
     try {
-      const todoRef = doc(db, 'todos', subItem.parentId);
-      const todoSnap = await getDoc(todoRef);
+      const todoRef = ref(database, `todos/${subItem.parentId}`);
+      const snapshot = await get(todoRef);
       
-      if (!todoSnap.exists()) {
-        const newTodo = {
+      if (!snapshot.exists()) {
+        const newTodoRef = ref(database, `todos/${subItem.parentId}`);
+        await set(newTodoRef, {
           text: subItem.parentText,
           category: subItem.parentCategory,
-          isCompleted: false,
+          completed: false,
           subItems: [{
             id: `subitem_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             text: subItem.text,
-            isCompleted: false
+            completed: false
           }],
-          createdAt: new Date(),
-          userId: user?.uid || 'anonymous'
-        };
-
-        await addDoc(collection(db, 'todos'), newTodo);
+          createdAt: Date.now()
+        });
         
         const parentInHistory = deletedTodos.find(t => t.id === subItem.parentId);
         if (parentInHistory) {
@@ -409,8 +440,8 @@ function App() {
         
         Alert.alert('Sucesso', 'Uma nova tarefa foi criada com o sub-item restaurado.');
       } else {
-        const todoData = todoSnap.data();
-        const existingSubItems = todoData.subItems || [];
+        const todo = snapshot.val();
+        const existingSubItems = todo.subItems || [];
         
         if (!existingSubItems.some(item => item.text === subItem.text)) {
           const updatedSubItems = [
@@ -418,13 +449,12 @@ function App() {
             {
               id: `subitem_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
               text: subItem.text,
-              isCompleted: false
+              completed: false
             }
           ];
 
-          await updateDoc(todoRef, {
-            subItems: updatedSubItems
-          });
+          await update(todoRef, { subItems: updatedSubItems });
+          console.log('Subitem restaurado com sucesso');
         } else {
           Alert.alert('Aviso', 'Este sub-item já existe na tarefa.');
           return;
@@ -471,124 +501,98 @@ function App() {
     if (categoryFilter && todo.category !== categoryFilter) return null;
 
     return (
-      <View key={todo.id} style={[styles.todoItem, todo.isCompleted && styles.completedTask]}>
-        {todo.isEditing ? (
-          <View key={`edit-${todo.id}`}>
-            <TextInput
-              key={`input-${todo.id}`}
-              value={todo.text}
-              onChangeText={(text) => handleEdit(todo.id, text, todo.category)}
-              style={styles.input}
-            />
-            <TextInput
-              key={`category-${todo.id}`}
-              value={todo.category}
-              onChangeText={(text) => handleEdit(todo.id, todo.text, text)}
-              style={styles.input}
-              placeholder="Categoria"
-            />
-            {todo.subItems.map((sub) => (
-              <View key={`sub-${sub.id}`} style={styles.subItem}>
-                <CheckBox
-                  key={`check-${sub.id}`}
-                  checked={sub.isCompleted}
-                  onPress={() => handleToggleSubItem(todo.id, sub.id)}
-                  containerStyle={styles.checkbox}
-                />
+      <View key={todo.id} style={[styles.todoItem, todo.completed && styles.completedTask]}>
+        <View style={styles.todoHeader}>
+          <CheckBox
+            checked={todo.completed}
+            onPress={() => handleComplete(todo.id)}
+            containerStyle={styles.mainCheckbox}
+          />
+          {todo.isEditing ? (
+            <View style={styles.editContainer}>
+              <TextInput
+                value={todo.text}
+                onChangeText={(text) => handleEdit(todo.id, text, todo.category)}
+                style={styles.input}
+              />
+              <TextInput
+                value={todo.category}
+                onChangeText={(text) => handleEdit(todo.id, todo.text, text)}
+                style={styles.input}
+                placeholder="Categoria"
+              />
+            </View>
+          ) : (
+            <View style={styles.todoContent}>
+              <Text style={[styles.todoText, todo.completed && styles.completed]}>
+                {todo.text}
+              </Text>
+              <Text style={[styles.todoCategory, todo.completed && styles.completed]}>
+                {todo.category}
+              </Text>
+            </View>
+          )}
+        </View>
+        
+        <View style={styles.subItemContainer}>
+          {todo.subItems.map((sub) => (
+            <View key={`sub-${sub.id}`} style={styles.subItem}>
+              <CheckBox
+                checked={sub.completed}
+                onPress={() => handleToggleSubItem(todo.id, sub.id)}
+                containerStyle={styles.checkbox}
+              />
+              {todo.isEditing && sub.isEditing ? (
                 <TextInput
-                  key={`subinput-${sub.id}`}
                   value={sub.text}
                   onChangeText={(text) => handleEditSubItem(todo.id, sub.id, text)}
                   style={styles.subItemInput}
+                  onBlur={() => toggleEditSubItem(todo.id, sub.id)}
                 />
-                <TouchableOpacity
-                  key={`delete-${sub.id}`}
-                  onPress={() => handleDeleteSubItem(todo.id, sub.id)}
-                  style={styles.subItemButton}
+              ) : (
+                <Text 
+                  style={[styles.subItemText, sub.completed && styles.completed]}
+                  onPress={() => todo.isEditing && toggleEditSubItem(todo.id, sub.id)}
                 >
-                  <Text style={styles.buttonText}>Remover</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-            <View key={`newsub-${todo.id}`} style={styles.subItem}>
+                  {sub.text}
+                </Text>
+              )}
+              <TouchableOpacity
+                onPress={() => handleDeleteSubItem(todo.id, sub.id)}
+                style={styles.subItemButton}
+              >
+                <Text style={styles.buttonText}>Remover</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+          {!todo.completed && todo.isEditing && (
+            <View style={styles.subItem}>
               <TextInput
-                key={`newinput-${todo.id}`}
                 value={subItemInputs[todo.id] || ''}
                 onChangeText={(text) => handleSubItemInputChange(todo.id, text)}
                 placeholder="Novo sub-item..."
                 style={styles.subItemInput}
               />
               <TouchableOpacity
-                key={`add-${todo.id}`}
-                onPress={() => handleAddSubItem(todo.id)}
+                onPress={() => handleAddSubItem(todo.id, subItemInputs[todo.id] || '')}
                 style={styles.subItemButton}
               >
                 <Text style={styles.buttonText}>Adicionar</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        ) : (
-          <View key={`view-${todo.id}`}>
-            <Text style={[styles.todoText, todo.isCompleted && styles.completed]}>
-              {todo.text}
-            </Text>
-            <Text style={[styles.todoCategory, todo.isCompleted && styles.completed]}>
-              {todo.category}
-            </Text>
-            <View style={styles.subItemContainer}>
-              {todo.subItems.map((sub) => (
-                <View key={`sub-${sub.id}`} style={styles.subItem}>
-                  <CheckBox
-                    key={`check-${sub.id}`}
-                    checked={sub.isCompleted}
-                    onPress={() => handleToggleSubItem(todo.id, sub.id)}
-                    containerStyle={styles.checkbox}
-                  />
-                  <Text style={[styles.subItemText, sub.isCompleted && styles.completed]}>
-                    {sub.text}
-                  </Text>
-                  <TouchableOpacity
-                    key={`delete-${sub.id}`}
-                    onPress={() => handleDeleteSubItem(todo.id, sub.id)}
-                    style={styles.subItemButton}
-                  >
-                    <Text style={styles.buttonText}>Remover</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-              {!todo.isCompleted && (
-                <View key={`newsub-${todo.id}`} style={styles.subItem}>
-                  <TextInput
-                    key={`newinput-${todo.id}`}
-                    value={subItemInputs[todo.id] || ''}
-                    onChangeText={(text) => handleSubItemInputChange(todo.id, text)}
-                    placeholder="Novo sub-item..."
-                    style={styles.subItemInput}
-                  />
-                  <TouchableOpacity
-                    key={`add-${todo.id}`}
-                    onPress={() => handleAddSubItem(todo.id)}
-                    style={styles.subItemButton}
-                  >
-                    <Text style={styles.buttonText}>Adicionar</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          </View>
-        )}
+          )}
+        </View>
+
         <View style={styles.buttonsContainer}>
           <TouchableOpacity
-            key={`complete-${todo.id}`}
             onPress={() => handleComplete(todo.id)}
             style={[styles.actionButton, styles.completeButton]}
           >
             <Text style={styles.buttonText}>
-              {todo.isCompleted ? 'Desfazer' : 'Completar'}
+              {todo.completed ? 'Desfazer' : 'Completar'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            key={`edit-${todo.id}`}
             onPress={() => toggleEdit(todo.id)}
             style={[styles.actionButton, styles.editButton]}
           >
@@ -597,7 +601,6 @@ function App() {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            key={`delete-${todo.id}`}
             onPress={() => handleDelete(todo.id)}
             style={[styles.actionButton, styles.deleteButton]}
           >
@@ -694,7 +697,7 @@ function App() {
         )}
 
         <FlatList
-          data={todos.filter(todo => !categoryFilter || todo.category === categoryFilter)}
+          data={todos || []}
           renderItem={renderTodoItem}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.todoList}
@@ -705,6 +708,9 @@ function App() {
               scrollViewRef.current?.scrollToEnd({ animated: true });
             }
           }}
+          ListEmptyComponent={() => (
+            <Text style={styles.emptyText}>Nenhuma tarefa encontrada</Text>
+          )}
         />
 
         <Modal
@@ -856,6 +862,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8f9fa',
     borderLeftColor: '#bdc3c7',
   },
+  todoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  mainCheckbox: {
+    padding: 0,
+    marginRight: 8,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    width: 35,
+  },
+  todoContent: {
+    flex: 1,
+  },
+  editContainer: {
+    flex: 1,
+  },
   todoText: {
     fontSize: 16,
     color: '#2c3e50',
@@ -897,11 +921,13 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     fontSize: 14,
     marginRight: 8,
+    backgroundColor: 'white',
   },
   subItemText: {
     flex: 1,
     fontSize: 14,
     color: '#34495e',
+    padding: 8,
   },
   subItemButton: {
     backgroundColor: '#3498db',
@@ -920,9 +946,6 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     alignItems: 'center',
-  },
-  completeButton: {
-    backgroundColor: '#2980b9',
   },
   editButton: {
     backgroundColor: '#f1c40f',
@@ -1025,6 +1048,15 @@ const styles = StyleSheet.create({
   },
   activeFilterText: {
     color: 'white',
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#666',
+    marginVertical: 10,
+    fontStyle: 'italic',
+  },
+  completeButton: {
+    backgroundColor: '#2980b9',
   },
 });
 
