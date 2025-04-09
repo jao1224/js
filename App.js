@@ -544,10 +544,11 @@ function App() {
               <DatePickerInput
                 locale="pt-BR"
                 label="Data de término"
-                value={todo.dueDate}
+                value={todo.dueDate ? new Date(todo.dueDate) : new Date()}
                 onChange={(date) => handleEdit(todo.id, todo.text, todo.category, date)}
                 inputMode="start"
                 style={styles.dateInput}
+                calendarIcon={props => <Icon name="calendar" type="font-awesome" {...props} />}
               />
             </View>
           ) : (
@@ -844,7 +845,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     paddingTop: 40,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
   },
   header: {
     flexDirection: 'row',
@@ -863,9 +864,9 @@ const styles = StyleSheet.create({
     borderRadius: 5,
   },
   form: {
-    marginBottom: 50,
+    marginBottom: 30,
     backgroundColor: 'white',
-    padding: 25,
+    padding: 15,
     borderRadius: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -876,8 +877,8 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     flexDirection: 'column',
-    justifyContent: 'space-between',
-    marginBottom: 25,
+    justifyContent: 'flex-start',
+    marginBottom: 15,
   },
   input: {
     padding: 12,
@@ -885,15 +886,15 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
     borderRadius: 8,
     fontSize: 16,
-    marginBottom: 15,
+    marginBottom: 10,
     width: '100%',
   },
   addButton: {
     backgroundColor: '#27ae60',
-    padding: 18,
+    padding: 12,
     borderRadius: 8,
     alignItems: 'center',
-    marginTop: 25,
+    marginTop: 15,
     width: '100%',
   },
   scrollContainer: {
@@ -1119,6 +1120,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     marginBottom: 20,
     marginTop: 10,
+    width: '100%',
   },
   todoDetails: {
     flexDirection: 'row',
