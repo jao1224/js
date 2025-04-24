@@ -661,86 +661,88 @@ function App() {
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
           >
-            <View style={styles.header}>
-              <Text style={styles.headerTitle}>Gerenciador de Tarefas</Text>
-              <TouchableOpacity
-                style={styles.historyButton}
-                onPress={() => setShowHistory(true)}
-              >
-                <Text style={styles.buttonText}>Histórico</Text>
-              </TouchableOpacity>
-            </View>
-
-            {showFilter && todos.length > 0 && (
-              <View style={styles.filterContainer}>
-                <ScrollView 
-                  horizontal 
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.filterScroll}
+            <View style={styles.contentContainer}>
+              <View style={styles.header}>
+                <Text style={styles.headerTitle}>Gerenciador de Tarefas</Text>
+                <TouchableOpacity
+                  style={styles.historyButton}
+                  onPress={() => setShowHistory(true)}
                 >
-                  {hasAddedTodo && (
-                    <TouchableOpacity
-                      style={[
-                        styles.filterButton,
-                        !categoryFilter && styles.activeFilter
-                      ]}
-                      onPress={() => setCategoryFilter('')}
-                    >
-                      <Text style={[
-                        styles.filterButtonText,
-                        !categoryFilter && styles.activeFilterText
-                      ]}>
-                        Todas
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                  
-                  {uniqueCategories.map(cat => (
-                    <TouchableOpacity
-                      key={cat}
-                      style={[
-                        styles.filterButton,
-                        categoryFilter === cat && styles.activeFilter
-                      ]}
-                      onPress={() => setCategoryFilter(cat)}
-                    >
-                      <Text style={[
-                        styles.filterButtonText,
-                        categoryFilter === cat && styles.activeFilterText
-                      ]}>
-                        {cat}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                  <Text style={styles.buttonText}>Histórico</Text>
+                </TouchableOpacity>
               </View>
-            )}
 
-            <View style={styles.listContainer}>
-              <FlatList
-                data={todos}
-                renderItem={renderTodoItem}
-                keyExtractor={(item) => item.id.toString()}
-                contentContainerStyle={styles.todoList}
-                style={styles.scrollContainer}
-                ref={scrollViewRef}
-                onContentSizeChange={() => {
-                  if (hasAddedTodo) {
-                    scrollViewRef.current?.scrollToEnd({ animated: true });
-                  }
-                }}
-                ListEmptyComponent={() => (
-                  <Text style={styles.emptyText}>
-                    {isLoading ? 'Carregando...' : 'Nenhuma tarefa encontrada'}
-                  </Text>
+              <View style={styles.mainContent}>
+                {showFilter && todos.length > 0 && (
+                  <View style={styles.filterContainer}>
+                    <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.filterScroll}
+                    >
+                      {hasAddedTodo && (
+                        <TouchableOpacity
+                          style={[
+                            styles.filterButton,
+                            !categoryFilter && styles.activeFilter
+                          ]}
+                          onPress={() => setCategoryFilter('')}
+                        >
+                          <Text style={[
+                            styles.filterButtonText,
+                            !categoryFilter && styles.activeFilterText
+                          ]}>
+                            Todas
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                      
+                      {uniqueCategories.map(cat => (
+                        <TouchableOpacity
+                          key={cat}
+                          style={[
+                            styles.filterButton,
+                            categoryFilter === cat && styles.activeFilter
+                          ]}
+                          onPress={() => setCategoryFilter(cat)}
+                        >
+                          <Text style={[
+                            styles.filterButtonText,
+                            categoryFilter === cat && styles.activeFilterText
+                          ]}>
+                            {cat}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
                 )}
-                removeClippedSubviews={true}
-                maxToRenderPerBatch={10}
-                windowSize={5}
-                initialNumToRender={10}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
-              />
+
+                <FlatList
+                  data={todos}
+                  renderItem={renderTodoItem}
+                  keyExtractor={(item) => item.id.toString()}
+                  contentContainerStyle={styles.todoList}
+                  style={styles.scrollContainer}
+                  ref={scrollViewRef}
+                  onContentSizeChange={() => {
+                    if (hasAddedTodo) {
+                      scrollViewRef.current?.scrollToEnd({ animated: true });
+                    }
+                  }}
+                  ListEmptyComponent={() => (
+                    <Text style={styles.emptyText}>
+                      {isLoading ? 'Carregando...' : 'Nenhuma tarefa encontrada'}
+                    </Text>
+                  )}
+                  removeClippedSubviews={true}
+                  maxToRenderPerBatch={10}
+                  windowSize={5}
+                  initialNumToRender={10}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                />
+              </View>
             </View>
           </KeyboardAvoidingView>
 
@@ -892,24 +894,26 @@ const styles = StyleSheet.create({
   },
   mainContainer: {
     flex: 1,
-    position: 'relative',
   },
   container: {
     flex: 1,
   },
-  listContainer: {
+  contentContainer: {
     flex: 1,
-    padding: 10,
-    paddingTop: 20,
+    paddingTop: Platform.OS === 'ios' ? 50 : 30,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    backgroundColor: '#f5f5f5',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#2c3e50',
   },
@@ -918,51 +922,29 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 5,
   },
-  form: {
-    marginBottom: 20,
-    backgroundColor: 'white',
-    padding: 15,
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
-    width: '100%',
+  mainContent: {
+    flex: 1,
   },
-  inputGroup: {
-    flexDirection: 'column',
-    justifyContent: 'flex-start',
-    marginBottom: 10,
-  },
-  input: {
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    fontSize: 14,
-    marginBottom: 15,
-    width: '100%',
-  },
-  addButton: {
-    backgroundColor: '#27ae60',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 20,
-    width: '100%',
+  filterContainer: {
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    backgroundColor: '#f5f5f5',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
   },
   scrollContainer: {
     flex: 1,
   },
   todoList: {
-    paddingBottom: 15,
+    paddingHorizontal: 15,
+    paddingTop: 10,
+    paddingBottom: 100, // Espaço para o botão flutuante
   },
   todoItem: {
     backgroundColor: 'white',
     padding: 15,
     borderRadius: 10,
-    marginBottom: 15,
+    marginBottom: 10,
     borderLeftWidth: 4,
     borderLeftColor: '#3498db',
     shadowColor: '#000',
@@ -1137,12 +1119,6 @@ const styles = StyleSheet.create({
     marginTop: 10,
     alignItems: 'center',
   },
-  filterContainer: {
-    marginBottom: 10,
-  },
-  filterScroll: {
-    paddingHorizontal: 5,
-  },
   filterButton: {
     backgroundColor: '#ecf0f1',
     paddingVertical: 6,
@@ -1193,9 +1169,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 20,
     bottom: 20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: '#3498db',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1211,7 +1187,6 @@ const styles = StyleSheet.create({
     fontSize: 30,
     fontWeight: 'bold',
     textAlign: 'center',
-    lineHeight: 60,
   },
   inputContainer: {
     width: '100%',
@@ -1227,6 +1202,26 @@ const styles = StyleSheet.create({
   dateButtonText: {
     color: 'white',
     fontWeight: 'bold',
+  },
+  input: {
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    fontSize: 14,
+    marginBottom: 15,
+    width: '100%',
+  },
+  addButton: {
+    backgroundColor: '#27ae60',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 20,
+    width: '100%',
+  },
+  showFilter: {
+    marginBottom: 10,
   },
 });
 
