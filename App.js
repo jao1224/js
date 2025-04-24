@@ -532,77 +532,55 @@ function App() {
             onPress={() => handleComplete(todo.id)}
             containerStyle={styles.mainCheckbox}
           />
-          {todo.isEditing ? (
-            <View style={styles.editContainer}>
-              <TextInput
-                value={todo.text}
-                onChangeText={(text) => handleEdit(todo.id, text, todo.category, todo.dueDate)}
-                style={styles.input}
-              />
-              <TextInput
-                value={todo.category}
-                onChangeText={(text) => handleEdit(todo.id, todo.text, text, todo.dueDate)}
-                style={styles.input}
-                placeholder="Categoria"
-              />
-              <DatePickerInput
-                locale="pt-BR"
-                label="Data de término"
-                value={todo.dueDate ? new Date(todo.dueDate) : new Date()}
-                onChange={(date) => handleEdit(todo.id, todo.text, todo.category, date)}
-                inputMode="start"
-                style={styles.dateInput}
-                calendarIcon={props => <Icon name="calendar" type="font-awesome" {...props} />}
-              />
-            </View>
-          ) : (
-            <View style={styles.todoContent}>
-              <Text style={[styles.todoText, todo.completed && styles.completed]}>
-                {todo.text}
+          <View style={styles.todoContent}>
+            <Text style={[styles.todoText, todo.completed && styles.completed]}>
+              {todo.text}
+            </Text>
+            <View style={styles.todoDetails}>
+              <Text style={[styles.todoCategory, todo.completed && styles.completed]}>
+                {todo.category}
               </Text>
-              <View style={styles.todoDetails}>
-                <Text style={[styles.todoCategory, todo.completed && styles.completed]}>
-                  {todo.category}
+              {todo.dueDate && (
+                <Text style={[styles.todoDueDate, todo.completed && styles.completed]}>
+                  Prazo: {formatDate(todo.dueDate)}
                 </Text>
-                {todo.dueDate && (
-                  <Text style={[styles.todoDueDate, todo.completed && styles.completed]}>
-                    Prazo: {formatDate(todo.dueDate)}
-                  </Text>
-                )}
-              </View>
+              )}
             </View>
-          )}
+          </View>
         </View>
         
         <View style={styles.subItemContainer}>
-          {todo.subItems.map((sub) => (
-            <View key={`sub-${sub.id}`} style={styles.subItem}>
+          {todo.subItems && todo.subItems.map((sub) => (
+            <View key={sub.id} style={styles.subItem}>
               <CheckBox
                 checked={sub.completed}
                 onPress={() => handleToggleSubItem(todo.id, sub.id)}
                 containerStyle={styles.checkbox}
               />
-              {todo.isEditing && sub.isEditing ? (
+              {sub.isEditing ? (
                 <TextInput
                   value={sub.text}
                   onChangeText={(text) => handleEditSubItem(todo.id, sub.id, text)}
                   style={styles.subItemInput}
                   onBlur={() => toggleEditSubItem(todo.id, sub.id)}
+                  autoFocus
                 />
               ) : (
                 <Text 
                   style={[styles.subItemText, sub.completed && styles.completed]}
-                  onPress={() => todo.isEditing && toggleEditSubItem(todo.id, sub.id)}
+                  onPress={() => toggleEditSubItem(todo.id, sub.id)}
                 >
                   {sub.text}
                 </Text>
               )}
-              <TouchableOpacity
-                onPress={() => handleDeleteSubItem(todo.id, sub.id)}
-                style={styles.subItemButton}
-              >
-                <Text style={styles.buttonText}>Remover</Text>
-              </TouchableOpacity>
+              {todo.isEditing && (
+                <TouchableOpacity
+                  onPress={() => handleDeleteSubItem(todo.id, sub.id)}
+                  style={styles.subItemButton}
+                >
+                  <Text style={styles.buttonText}>Remover</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ))}
           {!todo.completed && todo.isEditing && (
@@ -612,9 +590,18 @@ function App() {
                 onChangeText={(text) => handleSubItemInputChange(todo.id, text)}
                 placeholder="Novo sub-item..."
                 style={styles.subItemInput}
+                onSubmitEditing={() => {
+                  if (subItemInputs[todo.id]?.trim()) {
+                    handleAddSubItem(todo.id, subItemInputs[todo.id]);
+                  }
+                }}
               />
               <TouchableOpacity
-                onPress={() => handleAddSubItem(todo.id, subItemInputs[todo.id] || '')}
+                onPress={() => {
+                  if (subItemInputs[todo.id]?.trim()) {
+                    handleAddSubItem(todo.id, subItemInputs[todo.id]);
+                  }
+                }}
                 style={styles.subItemButton}
               >
                 <Text style={styles.buttonText}>Adicionar</Text>
@@ -649,7 +636,7 @@ function App() {
         </View>
       </View>
     );
-  }, [categoryFilter]);
+  }, [categoryFilter, handleComplete, handleToggleSubItem, handleEditSubItem, toggleEditSubItem, handleDeleteSubItem, subItemInputs, handleSubItemInputChange, handleAddSubItem]);
 
   // ************ RENDERIZAÇÃO PRINCIPAL ************ //
   return (
@@ -1000,7 +987,8 @@ const styles = StyleSheet.create({
   subItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
+    minHeight: 40,
   },
   checkbox: {
     padding: 0,
@@ -1010,25 +998,27 @@ const styles = StyleSheet.create({
   },
   subItemInput: {
     flex: 1,
-    padding: 6,
+    padding: 8,
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 4,
-    fontSize: 12,
+    fontSize: 14,
     marginRight: 8,
     backgroundColor: 'white',
+    minHeight: 36,
   },
   subItemText: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 14,
     color: '#34495e',
-    padding: 6,
+    padding: 8,
   },
   subItemButton: {
     backgroundColor: '#3498db',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 3,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    marginLeft: 8,
   },
   buttonsContainer: {
     flexDirection: 'row',
