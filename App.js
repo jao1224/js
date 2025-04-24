@@ -20,7 +20,7 @@ import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { Input, Button, Icon } from 'react-native-elements';
 import { ref, set, get, remove, update, push, onValue, off } from 'firebase/database';
 import { database } from './src/firebase';
-import { DateTimePickerModal } from 'react-native-paper-dates';
+import { DatePickerModal } from 'react-native-paper-dates';
 import { Provider as PaperProvider } from 'react-native-paper';
 import { DatePickerInput } from 'react-native-paper-dates';
 
@@ -40,6 +40,8 @@ function App() {
   const [hasAddedTodo, setHasAddedTodo] = useState(false);
   const [showFilter, setShowFilter] = useState(false);
   const [user, setUser] = useState(null);
+  const [showModal, setShowModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // ************ REFERÊNCIAS ************ //
   const scrollViewRef = useRef(null);
@@ -83,12 +85,11 @@ function App() {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   };
 
-  const loadTodos = () => {
+  const loadTodos = async () => {
     try {
-      console.log('Carregando tarefas...');
+      setIsLoading(true);
       const todosRef = ref(database, 'todos');
       const unsubscribe = onValue(todosRef, (snapshot) => {
-        console.log('Snapshot recebido:', snapshot.val());
         if (snapshot.exists()) {
           const data = snapshot.val();
           const todosArray = Object.entries(data || {}).map(([id, todo]) => ({
@@ -96,16 +97,16 @@ function App() {
             ...todo,
             subItems: todo.subItems || []
           }));
-          console.log('Tarefas carregadas:', todosArray);
           setTodos(todosArray);
         } else {
-          console.log('Nenhuma tarefa encontrada');
           setTodos([]);
         }
+        setIsLoading(false);
       }, (error) => {
         console.error('Erro ao carregar tarefas:', error);
         Alert.alert('Erro', 'Não foi possível carregar as tarefas');
         setTodos([]);
+        setIsLoading(false);
       });
 
       return () => off(todosRef);
@@ -113,6 +114,7 @@ function App() {
       console.error('Erro ao configurar listener:', error);
       Alert.alert('Erro', 'Não foi possível configurar o listener');
       setTodos([]);
+      setIsLoading(false);
     }
   };
 
@@ -134,7 +136,7 @@ function App() {
     if (input.trim() === '') return;
     
     try {
-      console.log('Adicionando tarefa...');
+      setIsLoading(true);
       const todosRef = ref(database, 'todos');
       const newTodoRef = push(todosRef);
       await set(newTodoRef, {
@@ -145,15 +147,17 @@ function App() {
         subItems: [],
         createdAt: Date.now()
       });
-      console.log('Tarefa adicionada com sucesso');
+      
       setInput('');
       setCategory('');
       setDueDate(null);
       setHasAddedTodo(true);
-      setTimeout(scrollToBottom, 100);
+      setIsLoading(false);
+      setShowModal(false);
     } catch (error) {
       console.error('Erro ao adicionar tarefa:', error);
       Alert.alert('Erro', 'Não foi possível adicionar a tarefa');
+      setIsLoading(false);
     }
   };
 
@@ -517,7 +521,7 @@ function App() {
   };
 
   // ************ RENDERIZAÇÃO DO ITEM ************ //
-  const renderTodoItem = ({ item: todo }) => {
+  const renderTodoItem = React.useCallback(({ item: todo }) => {
     if (categoryFilter && todo.category !== categoryFilter) return null;
 
     return (
@@ -645,118 +649,156 @@ function App() {
         </View>
       </View>
     );
-  };
+  }, [categoryFilter]);
 
   // ************ RENDERIZAÇÃO PRINCIPAL ************ //
   return (
     <PaperProvider>
       <SafeAreaView style={styles.safeArea}>
-        <KeyboardAvoidingView
-          style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Gerenciador de Tarefas</Text>
-            <TouchableOpacity
-              style={styles.historyButton}
-              onPress={() => setShowHistory(true)}
-            >
-              <Text style={styles.buttonText}>Histórico</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <TextInput
-                value={input}
-                onChangeText={setInput}
-                placeholder="Nova tarefa..."
-                style={styles.input}
-              />
-              <TextInput
-                value={category}
-                onChangeText={setCategory}
-                placeholder="Categoria..."
-                style={styles.input}
-              />
-            </View>
-            <DatePickerInput
-              locale="pt-BR"
-              label="Data de término"
-              value={dueDate}
-              onChange={handleDateChange}
-              inputMode="start"
-              style={styles.dateInput}
-            />
-            <TouchableOpacity 
-              onPress={handleAddTodo} 
-              style={styles.addButton}
-            >
-              <Text style={styles.buttonText}>Adicionar Tarefa</Text>
-            </TouchableOpacity>
-          </View>
-
-          {showFilter && todos.length > 0 && (
-            <View style={styles.filterContainer}>
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.filterScroll}
+        <View style={styles.mainContainer}>
+          <KeyboardAvoidingView
+            style={styles.container}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+          >
+            <View style={styles.header}>
+              <Text style={styles.headerTitle}>Gerenciador de Tarefas</Text>
+              <TouchableOpacity
+                style={styles.historyButton}
+                onPress={() => setShowHistory(true)}
               >
-                {hasAddedTodo && (
-                  <TouchableOpacity
-                    style={[
-                      styles.filterButton,
-                      !categoryFilter && styles.activeFilter
-                    ]}
-                    onPress={() => setCategoryFilter('')}
-                  >
-                    <Text style={[
-                      styles.filterButtonText,
-                      !categoryFilter && styles.activeFilterText
-                    ]}>
-                      Todas
-                    </Text>
-                  </TouchableOpacity>
-                )}
-                
-                {uniqueCategories.map(cat => (
-                  <TouchableOpacity
-                    key={cat}
-                    style={[
-                      styles.filterButton,
-                      categoryFilter === cat && styles.activeFilter
-                    ]}
-                    onPress={() => setCategoryFilter(cat)}
-                  >
-                    <Text style={[
-                      styles.filterButtonText,
-                      categoryFilter === cat && styles.activeFilterText
-                    ]}>
-                      {cat}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+                <Text style={styles.buttonText}>Histórico</Text>
+              </TouchableOpacity>
             </View>
-          )}
 
-          <FlatList
-            data={todos || []}
-            renderItem={renderTodoItem}
-            keyExtractor={(item) => item.id.toString()}
-            contentContainerStyle={styles.todoList}
-            style={styles.scrollContainer}
-            ref={scrollViewRef}
-            onContentSizeChange={() => {
-              if (hasAddedTodo) {
-                scrollViewRef.current?.scrollToEnd({ animated: true });
-              }
-            }}
-            ListEmptyComponent={() => (
-              <Text style={styles.emptyText}>Nenhuma tarefa encontrada</Text>
+            {showFilter && todos.length > 0 && (
+              <View style={styles.filterContainer}>
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.filterScroll}
+                >
+                  {hasAddedTodo && (
+                    <TouchableOpacity
+                      style={[
+                        styles.filterButton,
+                        !categoryFilter && styles.activeFilter
+                      ]}
+                      onPress={() => setCategoryFilter('')}
+                    >
+                      <Text style={[
+                        styles.filterButtonText,
+                        !categoryFilter && styles.activeFilterText
+                      ]}>
+                        Todas
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  
+                  {uniqueCategories.map(cat => (
+                    <TouchableOpacity
+                      key={cat}
+                      style={[
+                        styles.filterButton,
+                        categoryFilter === cat && styles.activeFilter
+                      ]}
+                      onPress={() => setCategoryFilter(cat)}
+                    >
+                      <Text style={[
+                        styles.filterButtonText,
+                        categoryFilter === cat && styles.activeFilterText
+                      ]}>
+                        {cat}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
             )}
-          />
+
+            <View style={styles.listContainer}>
+              <FlatList
+                data={todos}
+                renderItem={renderTodoItem}
+                keyExtractor={(item) => item.id.toString()}
+                contentContainerStyle={styles.todoList}
+                style={styles.scrollContainer}
+                ref={scrollViewRef}
+                onContentSizeChange={() => {
+                  if (hasAddedTodo) {
+                    scrollViewRef.current?.scrollToEnd({ animated: true });
+                  }
+                }}
+                ListEmptyComponent={() => (
+                  <Text style={styles.emptyText}>
+                    {isLoading ? 'Carregando...' : 'Nenhuma tarefa encontrada'}
+                  </Text>
+                )}
+                removeClippedSubviews={true}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                initialNumToRender={10}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+              />
+            </View>
+          </KeyboardAvoidingView>
+
+          <TouchableOpacity
+            style={styles.floatingButton}
+            onPress={() => setShowModal(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.floatingButtonText}>+</Text>
+          </TouchableOpacity>
+
+          <Modal
+            visible={showModal}
+            transparent={true}
+            animationType="fade"
+            onRequestClose={() => setShowModal(false)}
+          >
+            <TouchableOpacity
+              style={styles.modalOverlay}
+              activeOpacity={1}
+              onPress={() => setShowModal(false)}
+            >
+              <View style={styles.modalContent}>
+                <Text style={styles.modalHeader}>Nova Tarefa</Text>
+                <View style={styles.inputContainer}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Nova tarefa"
+                    value={input}
+                    onChangeText={setInput}
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Categoria"
+                    value={category}
+                    onChangeText={setCategory}
+                  />
+                  <TouchableOpacity
+                    style={styles.dateButton}
+                    onPress={() => setShowDatePicker(true)}
+                  >
+                    <Text style={styles.dateButtonText}>
+                      {dueDate ? formatDate(dueDate) : 'Selecionar data'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={() => {
+                      handleAddTodo();
+                      setShowModal(false);
+                    }}
+                  >
+                    <Text style={styles.buttonText}>Adicionar Tarefa</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </Modal>
 
           <Modal
             visible={showHistory}
@@ -828,7 +870,16 @@ function App() {
               </View>
             </View>
           </Modal>
-        </KeyboardAvoidingView>
+
+          <DatePickerModal
+            visible={showDatePicker}
+            onDismiss={() => setShowDatePicker(false)}
+            date={dueDate || new Date()}
+            onConfirm={handleDateChange}
+            mode="single"
+            locale="pt-BR"
+          />
+        </View>
       </SafeAreaView>
     </PaperProvider>
   );
@@ -838,14 +889,18 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-    padding: 10,
-    paddingTop: 20,
+  },
+  mainContainer: {
+    flex: 1,
+    position: 'relative',
   },
   container: {
     flex: 1,
+  },
+  listContainer: {
+    flex: 1,
     padding: 10,
     paddingTop: 20,
-    justifyContent: 'flex-start',
   },
   header: {
     flexDirection: 'row',
@@ -1133,6 +1188,45 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#e74c3c',
     fontStyle: 'italic',
+  },
+  floatingButton: {
+    position: 'absolute',
+    right: 20,
+    bottom: 20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#3498db',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    zIndex: 1000,
+  },
+  floatingButtonText: {
+    color: 'white',
+    fontSize: 30,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    lineHeight: 60,
+  },
+  inputContainer: {
+    width: '100%',
+    padding: 10,
+  },
+  dateButton: {
+    backgroundColor: '#3498db',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  dateButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
   },
 });
 
