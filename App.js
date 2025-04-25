@@ -42,6 +42,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [editingText, setEditingText] = useState({});
 
   // ************ REFERÊNCIAS ************ //
   const scrollViewRef = useRef(null);
@@ -119,16 +120,23 @@ function App() {
   };
 
   // ************ GERENCIAMENTO DE DATA ************ //
-  const handleDateChange = (date) => {
+  const handleDateChange = (params) => {
     setShowDatePicker(false);
-    if (date) {
-      setDueDate(date);
+    if (params.date) {
+      setDueDate(new Date(params.date));
     }
   };
 
-  const formatDate = (date) => {
-    if (!date) return '';
-    return new Date(date).toLocaleDateString('pt-BR');
+  const formatDate = (timestamp) => {
+    if (!timestamp) return '';
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) return '';
+      return date.toLocaleDateString('pt-BR');
+    } catch (error) {
+      console.error('Erro ao formatar data:', error);
+      return '';
+    }
   };
 
   // ************ GERENCIAMENTO DE TAREFAS ************ //
@@ -189,12 +197,58 @@ function App() {
     }
   };
 
-  const toggleEdit = (id) => {
-    setTodos(prev =>
-      prev.map(todo =>
-        todo.id === id ? { ...todo, isEditing: !todo.isEditing } : todo
-      )
-    );
+  const toggleEdit = async (id) => {
+    try {
+      const todo = todos.find(t => t.id === id);
+      const isEditing = !todo.isEditing;
+
+      if (!isEditing) { // Se estiver salvando (botão "Salvar" clicado)
+        // Salvar todas as alterações pendentes dos sub-itens
+        const todoRef = ref(database, `todos/${id}`);
+        const snapshot = await get(todoRef);
+        
+        if (snapshot.exists()) {
+          const currentTodo = snapshot.val();
+          const updatedSubItems = currentTodo.subItems.map(sub => {
+            const editedText = editingText[`${id}-${sub.id}`];
+            return editedText ? { ...sub, text: editedText } : sub;
+          });
+
+          await update(todoRef, { subItems: updatedSubItems });
+          
+          // Limpar todos os textos temporários relacionados a esta tarefa
+          setEditingText(prev => {
+            const newState = { ...prev };
+            Object.keys(newState).forEach(key => {
+              if (key.startsWith(`${id}-`)) {
+                delete newState[key];
+              }
+            });
+            return newState;
+          });
+        }
+      }
+
+      // Atualizar o estado local
+      setTodos(prev =>
+        prev.map(todo => {
+          if (todo.id === id) {
+            return {
+              ...todo,
+              isEditing,
+              subItems: todo.subItems.map(sub => ({
+                ...sub,
+                isEditing: false
+              }))
+            };
+          }
+          return todo;
+        })
+      );
+    } catch (error) {
+      console.error('Erro ao salvar alterações:', error);
+      Alert.alert('Erro', 'Não foi possível salvar as alterações dos sub-itens');
+    }
   };
 
   const handleEdit = (id, newText, newCategory, newDate) => {
@@ -340,11 +394,19 @@ function App() {
       if (snapshot.exists()) {
         const todo = snapshot.val();
         const subItems = todo.subItems || [];
-        subItems.push({
+        const newSubItem = {
           text: subItemText,
           completed: false,
           id: Date.now().toString()
-        });
+        };
+        
+        // Adiciona o novo sub-item ao estado temporário
+        setEditingText(prev => ({
+          ...prev,
+          [`${todoId}-${newSubItem.id}`]: newSubItem.text
+        }));
+
+        subItems.push(newSubItem);
         await update(todoRef, { subItems });
         console.log('Subitem adicionado com sucesso');
         setSubItemInputs(prev => ({ ...prev, [todoId]: '' }));
@@ -384,6 +446,14 @@ function App() {
         );
         await update(todoRef, { subItems: updatedSubItems });
         console.log('Sub-item atualizado com sucesso');
+        // Limpar o texto temporário após salvar
+        setEditingText(prev => {
+          const newState = { ...prev };
+          delete newState[`${todoId}-${subItemId}`];
+          return newState;
+        });
+        // Desativar modo de edição do sub-item
+        toggleEditSubItem(todoId, subItemId);
       }
     } catch (error) {
       console.error('Erro ao editar sub-item:', error);
@@ -393,18 +463,19 @@ function App() {
 
   const toggleEditSubItem = (todoId, subItemId) => {
     setTodos(prev =>
-      prev.map(todo =>
-        todo.id === todoId
-          ? {
-              ...todo,
-              subItems: todo.subItems.map(sub =>
-                sub.id === subItemId
-                  ? { ...sub, isEditing: !sub.isEditing }
-                  : sub
-              )
-            }
-          : todo
-      )
+      prev.map(todo => {
+        if (todo.id === todoId && todo.isEditing) {
+          return {
+            ...todo,
+            subItems: todo.subItems.map(sub =>
+              sub.id === subItemId
+                ? { ...sub, isEditing: !sub.isEditing }
+                : { ...sub, isEditing: false }
+            )
+          };
+        }
+        return todo;
+      })
     );
   };
 
@@ -557,18 +628,44 @@ function App() {
                 onPress={() => handleToggleSubItem(todo.id, sub.id)}
                 containerStyle={styles.checkbox}
               />
-              {sub.isEditing ? (
-                <TextInput
-                  value={sub.text}
-                  onChangeText={(text) => handleEditSubItem(todo.id, sub.id, text)}
-                  style={styles.subItemInput}
-                  onBlur={() => toggleEditSubItem(todo.id, sub.id)}
-                  autoFocus
-                />
+              {todo.isEditing ? (
+                sub.isEditing ? (
+                  <TextInput
+                    value={editingText[`${todo.id}-${sub.id}`] ?? sub.text}
+                    onChangeText={(text) => setEditingText(prev => ({
+                      ...prev,
+                      [`${todo.id}-${sub.id}`]: text
+                    }))}
+                    style={styles.subItemInput}
+                    autoFocus
+                    onBlur={() => {
+                      const newText = editingText[`${todo.id}-${sub.id}`];
+                      if (newText && newText !== sub.text) {
+                        handleEditSubItem(todo.id, sub.id, newText);
+                      } else {
+                        toggleEditSubItem(todo.id, sub.id);
+                      }
+                    }}
+                    onSubmitEditing={() => {
+                      const newText = editingText[`${todo.id}-${sub.id}`];
+                      if (newText && newText !== sub.text) {
+                        handleEditSubItem(todo.id, sub.id, newText);
+                      } else {
+                        toggleEditSubItem(todo.id, sub.id);
+                      }
+                    }}
+                  />
+                ) : (
+                  <Text 
+                    style={[styles.subItemText, sub.completed && styles.completed]}
+                    onPress={() => toggleEditSubItem(todo.id, sub.id)}
+                  >
+                    {sub.text}
+                  </Text>
+                )
               ) : (
                 <Text 
                   style={[styles.subItemText, sub.completed && styles.completed]}
-                  onPress={() => toggleEditSubItem(todo.id, sub.id)}
                 >
                   {sub.text}
                 </Text>
@@ -578,7 +675,12 @@ function App() {
                   onPress={() => handleDeleteSubItem(todo.id, sub.id)}
                   style={styles.subItemButton}
                 >
-                  <Text style={styles.buttonText}>Remover</Text>
+                  <Icon
+                    name="trash"
+                    type="font-awesome"
+                    size={16}
+                    color="white"
+                  />
                 </TouchableOpacity>
               )}
             </View>
@@ -591,18 +693,20 @@ function App() {
                 placeholder="Novo sub-item..."
                 style={styles.subItemInput}
                 onSubmitEditing={() => {
-                  if (subItemInputs[todo.id]?.trim()) {
-                    handleAddSubItem(todo.id, subItemInputs[todo.id]);
+                  const text = subItemInputs[todo.id]?.trim();
+                  if (text) {
+                    handleAddSubItem(todo.id, text);
                   }
                 }}
               />
               <TouchableOpacity
                 onPress={() => {
-                  if (subItemInputs[todo.id]?.trim()) {
-                    handleAddSubItem(todo.id, subItemInputs[todo.id]);
+                  const text = subItemInputs[todo.id]?.trim();
+                  if (text) {
+                    handleAddSubItem(todo.id, text);
                   }
                 }}
-                style={styles.subItemButton}
+                style={[styles.subItemButton, styles.addSubItemButton]}
               >
                 <Text style={styles.buttonText}>Adicionar</Text>
               </TouchableOpacity>
@@ -636,7 +740,7 @@ function App() {
         </View>
       </View>
     );
-  }, [categoryFilter, handleComplete, handleToggleSubItem, handleEditSubItem, toggleEditSubItem, handleDeleteSubItem, subItemInputs, handleSubItemInputChange, handleAddSubItem]);
+  }, [categoryFilter, handleComplete, handleToggleSubItem, handleEditSubItem, toggleEditSubItem, handleDeleteSubItem, subItemInputs, handleSubItemInputChange, handleAddSubItem, editingText]);
 
   // ************ RENDERIZAÇÃO PRINCIPAL ************ //
   return (
@@ -867,6 +971,11 @@ function App() {
             onConfirm={handleDateChange}
             mode="single"
             locale="pt-BR"
+            presentationStyle="pageSheet"
+            validRange={{
+              startDate: new Date(),
+              endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 ano a partir de hoje
+            }}
           />
         </View>
       </SafeAreaView>
@@ -1006,6 +1115,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
     backgroundColor: 'white',
     minHeight: 36,
+    color: '#34495e',
   },
   subItemText: {
     flex: 1,
@@ -1014,11 +1124,14 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   subItemButton: {
-    backgroundColor: '#3498db',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    backgroundColor: '#e74c3c',
+    padding: 8,
     borderRadius: 4,
     marginLeft: 8,
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   buttonsContainer: {
     flexDirection: 'row',
@@ -1212,6 +1325,11 @@ const styles = StyleSheet.create({
   },
   showFilter: {
     marginBottom: 10,
+  },
+  addSubItemButton: {
+    backgroundColor: '#3498db',
+    width: 'auto',
+    paddingHorizontal: 12,
   },
 });
 
