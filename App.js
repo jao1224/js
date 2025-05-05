@@ -902,58 +902,60 @@ function App() {
             <View style={styles.modalOverlay}>
               <View style={styles.modalContent}>
                 <Text style={styles.modalHeader}>Histórico de Exclusões</Text>
-                <Text style={styles.sectionHeader}>Tarefas Removidas</Text>
-                {deletedTodos.length === 0 ? (
-                  <Text style={styles.emptyMessage}>Nenhuma tarefa removida</Text>
-                ) : (
-                  deletedTodos.map(todo => (
-                    <View key={todo.id} style={styles.historyItem}>
-                      <Text style={styles.historyText}>
-                        {todo.text} ({todo.category})
-                      </Text>
-                      <View style={styles.historyButtons}>
-                        <TouchableOpacity
-                          onPress={() => handleRestore(todo.id)}
-                          style={styles.restoreButton}
-                        >
-                          <Text style={styles.buttonText}>Restaurar</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handlePermanentDelete(todo.id)}
-                          style={styles.deleteForeverButton}
-                        >
-                          <Text style={styles.buttonText}>Excluir</Text>
-                        </TouchableOpacity>
+                <ScrollView style={{ maxHeight: 400 }}>
+                  <Text style={styles.sectionHeader}>Tarefas Removidas</Text>
+                  {deletedTodos.length === 0 ? (
+                    <Text style={styles.emptyMessage}>Nenhuma tarefa removida</Text>
+                  ) : (
+                    deletedTodos.map(todo => (
+                      <View key={todo.id} style={styles.historyItem}>
+                        <Text style={styles.historyText}>
+                          {todo.text} ({todo.category})
+                        </Text>
+                        <View style={styles.historyButtons}>
+                          <TouchableOpacity
+                            onPress={() => handleRestore(todo.id)}
+                            style={styles.restoreButton}
+                          >
+                            <Text style={styles.buttonText}>Restaurar</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handlePermanentDelete(todo.id)}
+                            style={styles.deleteForeverButton}
+                          >
+                            <Text style={styles.buttonText}>Excluir</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                    </View>
-                  ))
-                )}
-                <Text style={styles.sectionHeader}>Sub-itens Removidos</Text>
-                {deletedSubItems.length === 0 ? (
-                  <Text style={styles.emptyMessage}>Nenhum sub-item removido</Text>
-                ) : (
-                  deletedSubItems.map(sub => (
-                    <View key={sub.id} style={styles.historyItem}>
-                      <Text style={styles.historyText}>
-                        {sub.text} (de: {sub.parentText} - {sub.parentCategory})
-                      </Text>
-                      <View style={styles.historyButtons}>
-                        <TouchableOpacity
-                          onPress={() => handleRestoreSubItem(sub)}
-                          style={styles.restoreButton}
-                        >
-                          <Text style={styles.buttonText}>Restaurar</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handlePermanentDeleteSubItem(sub.id)}
-                          style={styles.deleteForeverButton}
-                        >
-                          <Text style={styles.buttonText}>Excluir</Text>
-                        </TouchableOpacity>
+                    ))
+                  )}
+                  <Text style={styles.sectionHeader}>Sub-itens Removidos</Text>
+                  {deletedSubItems.length === 0 ? (
+                    <Text style={styles.emptyMessage}>Nenhum sub-item removido</Text>
+                  ) : (
+                    deletedSubItems.map(sub => (
+                      <View key={sub.id} style={styles.historyItem}>
+                        <Text style={styles.historyText}>
+                          {sub.text} (de: {sub.parentText} - {sub.parentCategory})
+                        </Text>
+                        <View style={styles.historyButtons}>
+                          <TouchableOpacity
+                            onPress={() => handleRestoreSubItem(sub)}
+                            style={styles.restoreButton}
+                          >
+                            <Text style={styles.buttonText}>Restaurar</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handlePermanentDeleteSubItem(sub.id)}
+                            style={styles.deleteForeverButton}
+                          >
+                            <Text style={styles.buttonText}>Excluir</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                    </View>
-                  ))
-                )}
+                    ))
+                  )}
+                </ScrollView>
                 <TouchableOpacity
                   style={styles.closeModalButton}
                   onPress={() => setShowHistory(false)}
