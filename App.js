@@ -716,11 +716,41 @@ function App() {
 
         <View style={styles.buttonsContainer}>
           <TouchableOpacity
-            onPress={() => handleComplete(todo.id)}
+            onPress={() => {
+              if (todo.isEditing) {
+                // Apenas desativa o modo de edição sem salvar
+                setTodos(prev =>
+                  prev.map(t =>
+                    t.id === todo.id
+                      ? {
+                          ...t,
+                          isEditing: false,
+                          subItems: t.subItems.map(sub => ({
+                            ...sub,
+                            isEditing: false
+                          }))
+                        }
+                      : t
+                  )
+                );
+                // Limpa os textos temporários de edição
+                setEditingText(prev => {
+                  const newState = { ...prev };
+                  Object.keys(newState).forEach(key => {
+                    if (key.startsWith(`${todo.id}-`)) {
+                      delete newState[key];
+                    }
+                  });
+                  return newState;
+                });
+              } else {
+                handleComplete(todo.id);
+              }
+            }}
             style={[styles.actionButton, styles.completeButton]}
           >
             <Text style={styles.buttonText}>
-              {todo.completed ? 'Desfazer' : 'Completar'}
+              {todo.isEditing ? 'Desfazer' : (todo.completed ? 'Desfazer' : 'Completar')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
