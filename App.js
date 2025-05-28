@@ -23,6 +23,7 @@ import { database } from './src/firebase';
 import { DatePickerModal } from 'react-native-paper-dates';
 import { Provider as PaperProvider } from 'react-native-paper';
 import { DatePickerInput } from 'react-native-paper-dates';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 function App() {
   // ************ ESTADOS ************ //
@@ -77,6 +78,14 @@ function App() {
       .sort();
     setUniqueCategories(categories);
   }, [todos]);
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  useEffect(() => {
+    saveHistory(deletedTodos, deletedSubItems);
+  }, [deletedTodos, deletedSubItems]);
 
   const scrollToTop = () => {
     scrollViewRef.current?.scrollToOffset({ offset: 0, animated: true });
@@ -588,6 +597,27 @@ function App() {
     } catch (error) {
       console.error('Erro ao excluir permanentemente sub-item:', error);
       Alert.alert('Erro', String(error.message || 'Erro desconhecido'));
+    }
+  };
+
+  // ************ PERSISTÊNCIA DO HISTÓRICO ************ //
+  const saveHistory = async (deletedTodos, deletedSubItems) => {
+    try {
+      await AsyncStorage.setItem('deletedTodos', JSON.stringify(deletedTodos));
+      await AsyncStorage.setItem('deletedSubItems', JSON.stringify(deletedSubItems));
+    } catch (e) {
+      console.error('Erro ao salvar histórico:', e);
+    }
+  };
+
+  const loadHistory = async () => {
+    try {
+      const todos = await AsyncStorage.getItem('deletedTodos');
+      const subItems = await AsyncStorage.getItem('deletedSubItems');
+      setDeletedTodos(todos ? JSON.parse(todos) : []);
+      setDeletedSubItems(subItems ? JSON.parse(subItems) : []);
+    } catch (e) {
+      console.error('Erro ao carregar histórico:', e);
     }
   };
 
